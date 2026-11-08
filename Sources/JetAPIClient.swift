@@ -23,9 +23,9 @@ struct JetPhotosResult: Codable {
     let Images: [ImageAttributes]?
 }
 
+/// Combined endpoint wraps the JetPhotos result in {"JetPhotos": {...}}.
 struct ScrapeResult: Codable {
     let JetPhotos: JetPhotosResult?
-    let FlightRadar: ScrapeResult?
 }
 
 struct JetAPIClient {
