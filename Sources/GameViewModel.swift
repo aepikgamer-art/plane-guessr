@@ -24,13 +24,14 @@ final class GameViewModel: ObservableObject {
             let newClue = try await api.randomClue(from: RegistrationPool.registrations)
             clue = newClue
             state = .guessing
-            // Resolve the actual airport in the background; needed at reveal.
             actualAirport = await AirportDatabase.resolve(for: newClue)
             if actualAirport == nil {
-                state = .error("Couldn't resolve the airport. Try again.")
+                state = .error("Couldn't resolve the airport for this photo. Hit retry.")
             }
+        } catch let JetAPIError.badResponse(code) {
+            state = .error("JetAPI returned HTTP \(code). It might be rate-limiting or that registration has no photos. Hit retry.")
         } catch {
-            state = .error("JetAPI didn't return a usable photo. \(error.localizedDescription)")
+            state = .error("Couldn't get a usable photo: \(error.localizedDescription). Hit retry.")
         }
     }
 

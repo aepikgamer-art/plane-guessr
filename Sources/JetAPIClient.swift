@@ -2,8 +2,30 @@ import Foundation
 import CoreLocation
 
 enum JetAPIError: Error {
-    case badResponse
+    case badResponse(Int)
     case noUsablePhotos
+}
+
+// JetAPI response (https://www.jetapi.dev, open-source Go server by macsencasaus)
+// GET /api?reg=N306US&photos=10&only_jp=true
+struct JetPhotosResult: Codable {
+    struct ImageAttributes: Codable {
+        let Image: String?
+        let Link: String?
+        let Thumbnail: String?
+        let DateTaken: String?
+        let Location: String?
+        let Photographer: String?
+        let Aircraft: String?
+        let Airline: String?
+    }
+    let Reg: String?
+    let Images: [ImageAttributes]?
+}
+
+struct ScrapeResult: Codable {
+    let JetPhotos: JetPhotosResult?
+    let FlightRadar: ScrapeResult?
 }
 
 struct JetAPIClient {
@@ -13,89 +35,66 @@ struct JetAPIClient {
 
     init() {
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 20
+        cfg.timeoutIntervalForRequest = 25
         cfg.httpAdditionalHeaders = ["User-Agent": "PlaneGuessr/1.0"]
         session = URLSession(configuration: cfg)
     }
 
     func photos(registration: String) async throws -> [PhotoClue] {
-        var comps = URLComponents(url: base.appendingPathComponent("aircraft"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [URLQueryItem(name: "reg", value: registration)]
-        guard let url = comps.url else { throw JetAPIError.badResponse }
+        var comps = URLComponents(url: base.appendingPathComponent("api"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [
+            URLQueryItem(name: "reg", value: registration),
+            URLQueryItem(name: "photos", value: "10"),
+            URLQueryItem(name: "only_jp", value: "true"),
+        ]
+        guard let url = comps.url else { throw JetAPIError.badResponse(-1) }
 
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw JetAPIError.badResponse
+            throw JetAPIError.badResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
-        let raw = try JSONSerialization.jsonObject(with: data)
-        return Self.extractClues(from: raw, registration: registration)
+
+        // only_jp=true returns the JetPhotosResult directly; the combined
+        // endpoint wraps it in {"JetPhotos": {...}}. Handle both.
+        var result: JetPhotosResult?
+        if let direct = try? JSONDecoder().decode(JetPhotosResult.self, from: data) {
+            result = direct
+        } else {
+            result = (try? JSONDecoder().decode(ScrapeResult.self, from: data))?.JetPhotos
+        }
+
+        let images = result?.Images ?? []
+        return images.compactMap { img in
+            guard let loc = img.Location,
+                  let photoURLString = img.Image ?? img.Thumbnail,
+                  let photoURL = URL(string: photoURLString) else { return nil }
+            return PhotoClue(
+                imageURL: photoURL,
+                photographer: img.Photographer ?? "Unknown",
+                dateTaken: img.DateTaken ?? "",
+                airportName: loc,
+                icao: JetAPIClient.icaoFromAirport(loc) ?? "",
+                registration: result?.Reg ?? registration
+            )
+        }
     }
 
+    /// Pick a random registration, keep any of its photos that include a usable airport string.
     func randomClue(from pool: [String]) async throws -> PhotoClue {
         var tried = Set<String>()
+        var lastError: Error = JetAPIError.noUsablePhotos
         for _ in 0..<6 {
             let reg = pool.randomElement()!
             guard !tried.contains(reg) else { continue }
             tried.insert(reg)
-            guard let photos = try? await photos(registration: reg), !photos.isEmpty else { continue }
-            if let clue = photos.randomElement() { return clue }
-        }
-        throw JetAPIError.noUsablePhotos
-    }
-
-    // MARK: - Lenient JSON walking
-
-    static func extractClues(from node: Any, registration: String) -> [PhotoClue] {
-        var clues: [PhotoClue] = []
-        walk(node) { dict in
-            var airport: String?
-            var photographer: String?
-            var date: String?
-            var image: String?
-
-            for (key, value) in dict {
-                guard let s = Self.asString(value) else { continue }
-                let k = key.lowercased()
-                if airport == nil, k.contains("airport"), s.count < 120, s.contains(" - ") {
-                    airport = s
-                } else if airport == nil, k.contains("airport"), s.count < 120 {
-                    airport = s
-                }
-                if photographer == nil, k.contains("photograph"), s.count < 80 { photographer = s }
-                if date == nil, k.contains("date"), s.count < 40 { date = s }
-                if image == nil, s.hasPrefix("http"), s.contains(".jpg") || s.contains(".jpeg") || s.contains(".png") || s.contains("jetphotos") {
-                    if k.contains("thumb") || k.contains("image") || k.contains("photo") || k.contains("url") || k.contains("src") {
-                        image = s
-                    }
-                }
+            do {
+                let photos = try await photos(registration: reg)
+                if let clue = photos.randomElement() { return clue }
+            } catch {
+                lastError = error
             }
-
-            guard let apt = airport, let img = image, let u = URL(string: img) else { return }
-            clues.append(PhotoClue(
-                imageURL: u,
-                photographer: photographer ?? "Unknown",
-                dateTaken: date ?? "",
-                airportName: apt,
-                icao: Self.icaoFromAirport(apt) ?? "",
-                registration: registration
-            ))
         }
-        return clues
-    }
-
-    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
-        if let dict = node as? [String: Any] {
-            visit(dict)
-            for value in dict.values { walk(value, visit: visit) }
-        } else if let arr = node as? [Any] {
-            for item in arr { walk(item, visit: visit) }
-        }
-    }
-
-    private static func asString(_ value: Any) -> String? {
-        if let s = value as? String { return s }
-        if let n = value as? Int { return String(n) }
-        return nil
+        throw lastError
     }
 
     /// "Denver Int'l Airport - KDEN" -> "KDEN"
