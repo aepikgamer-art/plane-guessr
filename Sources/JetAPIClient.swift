@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 enum JetAPIError: Error {
     case badResponse
@@ -17,7 +18,6 @@ struct JetAPIClient {
         session = URLSession(configuration: cfg)
     }
 
-    /// Fetch photos for an aircraft registration.
     func photos(registration: String) async throws -> [PhotoClue] {
         var comps = URLComponents(url: base.appendingPathComponent("aircraft"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "reg", value: registration)]
@@ -31,7 +31,6 @@ struct JetAPIClient {
         return Self.extractClues(from: raw, registration: registration)
     }
 
-    /// Pick a random registration, keep any of its photos that include a usable airport string.
     func randomClue(from pool: [String]) async throws -> PhotoClue {
         var tried = Set<String>()
         for _ in 0..<6 {
@@ -120,6 +119,5 @@ func haversineKm(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Do
 }
 
 func pointsFor(distanceKm: Double) -> Int {
-    // GeoGuessr-ish curve: 5000 pts at 0 km, ~3000 at 250 km, ~200 at 2000 km
     Int((5000 * pow(2.0, -distanceKm / 250)).rounded())
 }

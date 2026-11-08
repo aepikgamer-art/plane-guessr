@@ -6,7 +6,7 @@
     {
       "name": "PlaneGuessr",
       "bundleIdentifier": "dev.jetapi.planeguessr",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "versionDate": "2026-11-08T00:00:00Z",
       "versionDescription": "GeoGuessr but for planes. Guess the airport from a real JetPhotos shot. Liquid Glass UI, Apple Maps base layer.",
       "downloadURL": "https://github.com/aepikgamer-art/plane-guessr/releases/latest/download/PlaneGuessr.ipa",

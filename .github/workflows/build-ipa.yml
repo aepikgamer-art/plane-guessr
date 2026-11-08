@@ -6,6 +6,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -29,13 +32,15 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            -derivedDataPath build/dd | xcpretty || true
+            -derivedDataPath build/dd -quiet
 
       - name: Package IPA
         run: |
           set -euxo pipefail
+          APP="build/dd/Build/Products/Release-iphoneos/PlaneGuessr.app"
+          test -d "$APP" || { echo "PlaneGuessr.app not found - build failed"; exit 1; }
           mkdir -p build/Payload
-          cp -R "build/dd/Build/Products/Release-iphoneos/PlaneGuessr.app" build/Payload/
+          cp -R "$APP" build/Payload/
           cd build && zip -qry PlaneGuessr.ipa Payload && cd ..
           ls -la build/PlaneGuessr.ipa
 
