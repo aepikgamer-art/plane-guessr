@@ -9,6 +9,8 @@ struct PhotoClue: Identifiable, Equatable {
     let airportName: String   // e.g. "Denver Int'l Airport - KDEN"
     let icao: String          // e.g. "KDEN"
     let registration: String
+    let airline: String       // e.g. "Northwest Airlines"
+    let aircraftType: String  // e.g. "Airbus A320-211"
 }
 
 struct Airport: Identifiable, Equatable {

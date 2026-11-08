@@ -6,9 +6,9 @@
     {
       "name": "PlaneGuessr",
       "bundleIdentifier": "dev.jetapi.planeguessr",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "versionDate": "2026-11-08T00:00:00Z",
-      "versionDescription": "Fix: JetAPI client now calls the real /api JSON endpoint (was hitting the HTML page).",
+      "versionDescription": "Fix: tap-to-pin now works (MKMapView wrapper). New clues: airline + aircraft type. Skip button for impossible shots.",
       "downloadURL": "https://github.com/aepikgamer-art/plane-guessr/releases/latest/download/PlaneGuessr.ipa",
       "tintColor": "1FC7E8",
       "localizedDescription": "You get a real aircraft photo pulled live from JetAPI (JetPhotos + FlightRadar24 data). Drop a pin on Apple Maps where you think it was taken, score by distance."

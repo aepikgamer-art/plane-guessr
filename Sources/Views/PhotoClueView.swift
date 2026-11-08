@@ -30,11 +30,19 @@ struct PhotoClueView: View {
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
             // Clue chips (glass pills). The airport itself is deliberately NOT shown.
-            HStack(spacing: 8) {
-                ClueChip(icon: "airplane.circle.fill", text: clue.registration)
-                ClueChip(icon: "camera.fill", text: "© \(clue.photographer)")
-                if !clue.dateTaken.isEmpty {
-                    ClueChip(icon: "calendar", text: clue.dateTaken)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if !clue.airline.isEmpty {
+                        ClueChip(icon: "building.2.fill", text: clue.airline, tint: .orange)
+                    }
+                    if !clue.aircraftType.isEmpty {
+                        ClueChip(icon: "airplane", text: clue.aircraftType, tint: .cyan)
+                    }
+                    ClueChip(icon: "number", text: clue.registration, tint: .white)
+                    if !clue.dateTaken.isEmpty {
+                        ClueChip(icon: "calendar", text: clue.dateTaken, tint: .white)
+                    }
+                    ClueChip(icon: "camera.fill", text: "© \(clue.photographer)", tint: .gray)
                 }
             }
         }
@@ -46,11 +54,12 @@ struct PhotoClueView: View {
 struct ClueChip: View {
     let icon: String
     let text: String
+    var tint: Color = .white
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: icon).font(.caption2)
-            Text(text).font(.caption).lineLimit(1)
+            Image(systemName: icon).font(.caption2).foregroundStyle(tint)
+            Text(text).font(.caption).lineLimit(1).foregroundStyle(.white)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

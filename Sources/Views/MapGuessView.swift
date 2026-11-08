@@ -3,22 +3,16 @@ import MapKit
 
 struct MapGuessView: View {
     @ObservedObject var vm: GameViewModel
-    @State private var camera: MapCameraPosition = .worldSpin
 
     var body: some View {
         VStack(spacing: 12) {
             ZStack(alignment: .bottom) {
-                Map(position: $camera) {
-                    if let guess = vm.guessCoordinate {
-                        Marker("Your guess", systemImage: "mappin.and.ellipse", coordinate: guess)
-                            .tint(.cyan)
-                    }
-                    if case .reveal(let result) = vm.state {
-                        Marker(result.actual.name, systemImage: "airplane.circle", coordinate: result.actual.coordinate)
-                            .tint(.orange)
-                    }
+                // Real MKMapView wrapper: SwiftUI Map eats taps, so we do
+                // tap-to-pin with a proper UITapGestureRecognizer.
+                PinDropMapView(pin: vm.guessCoordinate) { coord in
+                    vm.guessCoordinate = coord
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 }
-                .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll, showsTraffic: false))
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                 if vm.guessCoordinate == nil {
@@ -33,84 +27,108 @@ struct MapGuessView: View {
             }
             .frame(maxHeight: .infinity)
 
-            Button {
-                if vm.guessCoordinate != nil { vm.confirmGuess() }
-            } label: {
-                Label(vm.guessCoordinate == nil ? "Drop a pin on the map" : "Lock in my guess",
-                      systemImage: vm.guessCoordinate == nil ? "hand.tap" : "checkmark.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(GlassButtonStyle(tint: .cyan))
-            .disabled(vm.guessCoordinate == nil)
-        }
-        // Tap anywhere on the container: convert to a map coordinate via the
-        // map's UIViewRepresentable bridge (MKMapView projection).
-        .overlay {
-            MapTapBridge { coord in
-                vm.guessCoordinate = coord
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            HStack(spacing: 10) {
+                Button {
+                    vm.nextRound()
+                } label: {
+                    Label("Skip", systemImage: "arrow.uturn.right")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GlassButtonStyle(tint: .gray))
+
+                Button {
+                    if vm.guessCoordinate != nil { vm.confirmGuess() }
+                } label: {
+                    Label(vm.guessCoordinate == nil ? "Drop a pin" : "Lock it in",
+                          systemImage: vm.guessCoordinate == nil ? "hand.tap" : "checkmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(GlassButtonStyle(tint: .cyan))
+                .disabled(vm.guessCoordinate == nil)
             }
         }
     }
 }
 
-extension MapCameraPosition {
-    static let worldSpin = MapCameraPosition.camera(
-        MapCamera(centerCoordinate: CLLocationCoordinate2D(latitude: 30, longitude: 0),
-                  distance: 14_000_000, heading: 0, pitch: 0)
-    )
+// MARK: - MKMapView wrapper
+
+final class GuessPin: NSObject, MKAnnotation {
+    let coordinate: CLLocationCoordinate2D
+    init(_ c: CLLocationCoordinate2D) { coordinate = c }
 }
 
-/// Transparent UIViewRepresentable that overlays the SwiftUI Map, converts
-/// screen taps to geo-coordinates using MKMapView's projection, and forwards
-/// them. SwiftUI Map consumes raw taps for marker selection, so this bridge is
-/// the reliable way to implement "tap to drop a pin".
-struct MapTapBridge: UIViewRepresentable {
+struct PinDropMapView: UIViewRepresentable {
+    var pin: CLLocationCoordinate2D?
     var onTap: (CLLocationCoordinate2D) -> Void
 
-    func makeUIView(context: Context) -> UIView {
-        let v = TapView()
-        v.backgroundColor = .clear
-        v.onMapTap = onTap
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.delegate = context.coordinator
+        map.mapType = .standard
+        map.pointOfInterestFilter = .excludingAll
+        map.showsTraffic = false
+        map.showsCompass = true
+        map.isRotateEnabled = false
+        map.setRegion(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 25, longitude: -20),
+            span: MKCoordinateSpan(latitudeDelta: 110, longitudeDelta: 110)
+        ), animated: false)
+
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
-        v.addGestureRecognizer(tap)
-        return v
+        tap.delegate = context.coordinator
+        map.addGestureRecognizer(tap)
+        return map
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        (uiView as? TapView)?.onMapTap = onTap
+    func updateUIView(_ map: MKMapView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.syncPin(on: map)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    final class Coordinator: NSObject {
-        let parent: MapTapBridge
-        init(_ parent: MapTapBridge) { self.parent = parent }
+    final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
+        var parent: PinDropMapView
+        private var lastPinLatitude: Double?
+        private var lastPinLongitude: Double?
+
+        init(_ parent: PinDropMapView) { self.parent = parent }
 
         @objc func tapped(_ gr: UITapGestureRecognizer) {
-            guard let window = gr.view?.window else { return }
-            let point = gr.location(in: window)
-            // Find the underlying MKMapView in the window hierarchy.
-            guard let mapView = Self.findMapView(in: window) else { return }
-            let local = window.convert(point, to: mapView)
-            parent.onTap(mapView.convert(local, toCoordinateFrom: mapView))
+            guard let map = gr.view as? MKMapView else { return }
+            parent.onTap(map.convert(gr.location(in: map), toCoordinateFrom: map))
         }
 
-        static func findMapView(in view: UIView) -> MKMapView? {
-            if let mv = view as? MKMapView { return mv }
-            for sub in view.subviews {
-                if let found = findMapView(in: sub) { return found }
+        /// Let the tap recognizer work alongside MKMapView's own pan/zoom gestures.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        func syncPin(on map: MKMapView) {
+            let existing = map.annotations.filter { $0 is GuessPin }
+            if let pin = parent.pin {
+                let moved = pin.latitude != lastPinLatitude || pin.longitude != lastPinLongitude
+                guard moved else { return }
+                lastPinLatitude = pin.latitude
+                lastPinLongitude = pin.longitude
+                if !existing.isEmpty { map.removeAnnotations(existing) }
+                map.addAnnotation(GuessPin(pin))
+            } else if lastPinLatitude != nil || lastPinLongitude != nil {
+                lastPinLatitude = nil
+                lastPinLongitude = nil
+                if !existing.isEmpty { map.removeAnnotations(existing) }
             }
-            return nil
         }
-    }
 
-    final class TapView: UIView {
-        var onMapTap: ((CLLocationCoordinate2D) -> Void)?
-        // Pass touches through except taps handled by our gesture recognizer.
-        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            return nil // see README: enable this overlay's hit-testing if the
-                       // SwiftUI Map doesn't already consume taps on your iOS version.
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard annotation is GuessPin else { return nil }
+            let id = "guessPin"
+            let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
+                ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+            view.annotation = annotation
+            view.canShowCallout = false
+            view.markerTintColor = .systemCyan
+            view.glyphImage = UIImage(systemName: "mappin.and.ellipse")
+            return view
         }
     }
 }

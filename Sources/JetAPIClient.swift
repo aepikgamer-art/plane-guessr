@@ -74,7 +74,9 @@ struct JetAPIClient {
                 dateTaken: img.DateTaken ?? "",
                 airportName: loc,
                 icao: JetAPIClient.icaoFromAirport(loc) ?? "",
-                registration: result?.Reg ?? registration
+                registration: result?.Reg ?? registration,
+                airline: img.Airline ?? "",
+                aircraftType: img.Aircraft ?? ""
             )
         }
     }
